@@ -7,7 +7,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 _ner = GLiNER.from_pretrained("urchade/gliner_large-v2.1")
 _labels = ["name", "phone number", "university/college", "college_degree"]
-_llm = ChatOpenAI(temperature=0.5)
+_llm = ChatOpenAI(model="gpt-4o", temperature=0.5)
 
 
 def _parse_direct_answer(gpt_response: dict[str, str]) -> None | str:
@@ -18,7 +18,15 @@ _chain = (
     ChatPromptTemplate.from_messages(
         [
             ("system", STRAIGHT_FORWARD_PROMPT),
-            ("human", "{proposition}\n\nWhat is the name of the college degree only?"),
+            (
+                "human",
+                """
+{proposition}
+                                                                                 
+What is the full name of the college degree only? Specify the degree type (e.g. Master's or Bachelor's) AND the name of the degree (e.g. Computer Science, Electrical Engineering, Philosophy). If no degree name is specified, just say "None". If any words of "program" is present, just say "None".
+                                                                                 
+Proper answers would include the following: Bachelor of Science in Data Science, Master of Science in Aerospace Engineering, B.A. in Psychology, Master's in English, Master of Fine Arts, Bachelor of Arts in Music""",
+            ),
         ]
     )
     | _llm
