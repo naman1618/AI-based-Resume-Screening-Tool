@@ -58,7 +58,7 @@ class FileLoader:
         information_integrity_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", INFORMATION_INTEGRITY_PROMPT),
-                ("human", "Document 1:\n{markdown}\n\nDocument 2:{raw_text}"),
+                ("human", "Document 1:\n{markdown}\n\nDocument 2:\n\n{raw_text}"),
             ]
         )
 
