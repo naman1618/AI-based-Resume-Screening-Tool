@@ -1,3 +1,4 @@
+import time
 from llama_index.core import Document as LlamaDocument
 import pymupdf4llm
 import mammoth
@@ -46,7 +47,7 @@ class FileExtension(Enum):
 
 class FileLoader:
 
-    def __init__(self):
+    def __init__(self, verbose=False):
         llm = ChatOpenAI(
             model="gpt-4o",
             temperature=0.5,
@@ -70,6 +71,7 @@ class FileLoader:
                 ("human", "Decompose the following:\n\n{input}"),
             ]
         )
+        self._verbose = verbose
         self._json_parser = JsonOutputParser()
         self._agentic_splitter = (
             information_integrity_prompt
@@ -95,6 +97,22 @@ class FileLoader:
         if self.get_extension(file_path) == FileExtension.UNSUPPORTED:
             raise UnsupportedFileException(file_path, extension.value)
 
+    def load(self, file_path: str) -> list[LlamaDocument]:
+        """
+        Loads a document, calling the appropriate load method based on its extension
+        """
+        match self.get_extension(file_path):
+            case FileExtension.PDF.value:
+                return self.load_pdf(file_path)
+            case FileExtension.DOCX.value:
+                return self.load_docx(file_path)
+            case _:
+                return []
+
+    def _print(self, string):
+        if self._verbose:
+            print(string)
+
     def load_pdf(self, file_path: str) -> list[LlamaDocument]:
         self._validate_extension_for_loader(file_path, FileExtension.PDF)
 
@@ -102,10 +120,20 @@ class FileLoader:
             reader = PdfReader(file)
             raw_text = "\n".join([x.extract_text() for x in reader.pages])
             md = pymupdf4llm.to_markdown(file_path, page_chunks=True)[0]
+            start = time.perf_counter()
+            self._print(f"Refining {file_path}...")
             output = self._agentic_splitter.invoke(
                 {"markdown": md["text"], "raw_text": raw_text}
             )
+            self._print(
+                f"Refining {file_path} took {time.perf_counter() - start} seconds. Now extracting metadata based on the contents..."
+            )
+            start = time.perf_counter()
             metadata = extract_person_metadata(output)
+            self._print(
+                f"Extracting metadata from {file_path} took {time.perf_counter() - start} seconds. Action completed."
+            )
+
             return [
                 LlamaDocument(
                     text=chunk,
@@ -119,10 +147,19 @@ class FileLoader:
         with open(file_path, "rb") as docx_file:
             raw_text = mammoth.extract_raw_text(docx_file).value
             md = html2md(mammoth.convert_to_html(docx_file).value)
+            start = time.perf_counter()
+            self._print(f"Refining {file_path}...")
             output = self._agentic_splitter.invoke(
                 {"markdown": md, "raw_text": raw_text}
             )
+            self._print(
+                f"Refining {file_path} took {time.perf_counter() - start} seconds. Now extracting metadata based on the contents..."
+            )
+            start = time.perf_counter()
             metadata = extract_person_metadata(output)
+            self._print(
+                f"Extracting metadata from {file_path} took {time.perf_counter() - start} seconds. Action completed."
+            )
             return [
                 LlamaDocument(
                     text=chunk,
