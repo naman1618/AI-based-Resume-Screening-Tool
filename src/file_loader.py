@@ -1,13 +1,23 @@
 from llama_index.core import Document as LlamaDocument
-from llama_index.readers.web import SimpleWebPageReader
 import pymupdf4llm
 import mammoth
 from markdownify import markdownify as html2md
 from enum import Enum
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from langchain_core.output_parsers import JsonOutputParser
+from parsers import (
+    md_json_parser,
+    information_integrity_agent_output_parser,
+    extract_person_metadata,
+)
+from prompts import PROPOSITION_GENERATOR_PROMPT, INFORMATION_INTEGRITY_PROMPT
+from operator import itemgetter
+from pypdf import PdfReader
+import os
 
 
 class UnsupportedFileException(Exception):
-
     def _extract_extension(self, file_path: str):
         return file_path[file_path.rfind(".") + 1 :]
 
@@ -37,7 +47,38 @@ class FileExtension(Enum):
 class FileLoader:
 
     def __init__(self):
-        self._pdf_reader = pymupdf4llm.LlamaMarkdownReader()
+        llm = ChatOpenAI(
+            model="gpt-4o",
+            temperature=0.5,
+            max_tokens=None,
+            timeout=None,
+            max_retries=2,
+        )
+        information_integrity_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", INFORMATION_INTEGRITY_PROMPT),
+                ("human", "Document 1:\n{markdown}\n\nDocument 2:{raw_text}"),
+            ]
+        )
+
+        proposition_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    PROPOSITION_GENERATOR_PROMPT,
+                ),
+                ("human", "Decompose the following:\n\n{input}"),
+            ]
+        )
+        self._json_parser = JsonOutputParser()
+        self._agentic_splitter = (
+            information_integrity_prompt
+            | llm
+            | information_integrity_agent_output_parser
+            | proposition_prompt
+            | llm
+            | md_json_parser
+        )
 
     def get_extension(self, file_path: str) -> FileExtension:
         """
@@ -57,18 +98,41 @@ class FileLoader:
     def load_pdf(self, file_path: str) -> list[LlamaDocument]:
         self._validate_extension_for_loader(file_path, FileExtension.PDF)
 
-        return self._pdf_reader.load_data(file_path)
+        with open(file_path, "rb") as file:
+            reader = PdfReader(file)
+            raw_text = "\n".join([x.extract_text() for x in reader.pages])
+            md = pymupdf4llm.to_markdown(file_path, page_chunks=True)[0]
+            output = self._agentic_splitter.invoke(
+                {"markdown": md["text"], "raw_text": raw_text}
+            )
+            metadata = extract_person_metadata(output)
+            return [
+                LlamaDocument(
+                    text=chunk,
+                    metadata={"file_path": os.path.abspath(file_path), **metadata},
+                )
+                for chunk in output
+            ]
 
     def load_docx(self, file_path: str) -> list[LlamaDocument]:
         self._validate_extension_for_loader(file_path, FileExtension.DOCX)
         with open(file_path, "rb") as docx_file:
+            raw_text = mammoth.extract_raw_text(docx_file).value
             md = html2md(mammoth.convert_to_html(docx_file).value)
+            output = self._agentic_splitter.invoke(
+                {"markdown": md, "raw_text": raw_text}
+            )
+            metadata = extract_person_metadata(output)
+            return [
+                LlamaDocument(
+                    text=chunk,
+                    metadata={"file_path": os.path.abspath(file_path), **metadata},
+                )
+                for chunk in output
+            ]
 
 
-loader = FileLoader()
-docx = loader.load_docx("resumes/Zoha_Resume_R.docx")
-
-print(docx)
+# print(docx)
 
 # def load()
 
