@@ -19,6 +19,8 @@ from doctr.models import ocr_predictor, from_hub
 from doctr.io import DocumentFile
 import pymupdf4llm
 
+from file_loader import FileLoader
+
 model = from_hub("Felix92/doctr-torch-parseq-multilingual-v1")
 predictor = ocr_predictor(
     det_arch="fast_base",
@@ -126,22 +128,12 @@ def split_text(text, max_tokens=1024, chunk_overlap=64):
 def process_file(file_path):
     documents = []
     print(file_path)
+    loader = FileLoader(verbose=True)
     try:
         if file_path.lower().endswith(".pdf"):
-            text = load_pdf(file_path)
-            text_chunks = split_text(text)
-            for chunk in text_chunks:
-                documents.append(
-                    LlamaDocument(text=chunk, metadata={"source": file_path})
-                )
+            documents.extend(loader.load_pdf(file_path))
         elif file_path.lower().endswith(".docx"):
-            text = load_docx(file_path)
-            if text:
-                text_chunks = split_text(text)
-                for chunk in text_chunks:
-                    documents.append(
-                        LlamaDocument(text=chunk, metadata={"source": file_path})
-                    )
+            documents.extend(loader.load_docx(file_path))
         elif file_path.lower().endswith(".doc"):
             text = load_doc(file_path)
             if text:
@@ -163,7 +155,7 @@ def process_file(file_path):
 
 
 def preprocess_and_store_documents():
-    download_resumes_from_s3(os.environ["S3_BUCKET_NAME"], "resumes")
+    # download_resumes_from_s3(os.environ["S3_BUCKET_NAME"], "resumes")
 
     all_documents = []
     with ThreadPoolExecutor(max_workers=1) as executor:
