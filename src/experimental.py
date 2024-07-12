@@ -1,42 +1,31 @@
+from typing import TypedDict
 import gradio as gr
 from llama_index.core import (
     Document as LlamaDocument,
     VectorStoreIndex,
 )
+from llama_index.core.query_engine import RetrieverQueryEngine, SubQuestionQueryEngine
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
+from llama_index.core.retrievers import (
+    VectorIndexRetriever,
+    KeywordTableSimpleRetriever,
+)
+
 from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
-from llama_index.core.agent.react.base import ReActAgent
-from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core import (
+    StorageContext,
+    SimpleKeywordTableIndex,
+    get_response_synthesizer,
+)
 from dotenv import load_dotenv
 import os
 import boto3
-import mammoth
-from docx import Document as DocxDocument
-import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from doctr.models import ocr_predictor, from_hub
-from doctr.io import DocumentFile
-import pymupdf4llm
-
+from agentic_splitter import AgenticSplitter
+from llama_index.core import Settings
 from file_loader import FileLoader
-
-model = from_hub("Felix92/doctr-torch-parseq-multilingual-v1")
-predictor = ocr_predictor(
-    det_arch="fast_base",
-    reco_arch=model,
-    pretrained=True,
-    assume_straight_pages=True,
-    detect_orientation=False,
-)
-
-
-def get_pdf_text(pdf_path: str):
-    # docs = DocumentFile.from_pdf(pdf_path)
-    # result = predictor(docs)
-    return pymupdf4llm.to_markdown(pdf_path)
-    # return str(result.render())
-
+from hybrid_retriever import HybridRetriever
 
 # Suppress warnings
 import warnings
@@ -48,7 +37,30 @@ s3 = boto3.client("s3")
 
 # Set up llama_index settings
 embed_model = OpenAIEmbedding(model="text-embedding-3-large")
-llm = OpenAI(temperature=0.9, model="gpt-4o")
+
+
+class ProcessedFile(TypedDict):
+    documents: list[LlamaDocument]
+    candidate_name: str
+    file_path: str
+
+
+def process_file(path: str) -> ProcessedFile:
+    loader = FileLoader(verbose=True)
+    splitter = AgenticSplitter(verbose=True)
+
+    propositions, md_hash, name = loader.load(file_path=path)
+    try:
+        splitter.load_chunks(md_hash)
+    except FileNotFoundError as e:
+        splitter.add_propositions(propositions=propositions, candidate_name=name)
+        splitter.persist(md_hash=md_hash)
+
+    return {
+        "documents": splitter.to_documents(candidate_name=name),
+        "candidate_name": name,
+        "file_path": path,
+    }
 
 
 def download_resumes_from_s3(bucket_name, local_dir, prefix=""):
@@ -70,95 +82,11 @@ def download_resumes_from_s3(bucket_name, local_dir, prefix=""):
                     print(f"Downloaded: {key}")
 
 
-def load_document(file_path):
-    if file_path.lower().endswith(".pdf"):
-        return load_pdf(file_path)
-    elif file_path.lower().endswith(".docx"):
-        return load_docx(file_path)
-    elif file_path.lower().endswith(".doc"):
-        return load_doc(file_path)
-    elif file_path.lower().endswith(".txt"):
-        return load_txt(file_path)
-    else:
-        print(f"Unsupported file type: {file_path}")
-        return ""
+def preprocess_and_store_documents() -> list[ProcessedFile]:
+    download_resumes_from_s3(os.environ["S3_BUCKET_NAME"], "resumes")
 
-
-def load_pdf(file_path):
-    try:
-        return get_pdf_text(file_path)
-    except Exception as e:
-        print(f"Error processing PDF file {file_path}: {e}")
-        return ""
-
-
-def load_docx(file_path):
-    try:
-        doc = DocxDocument(file_path)
-        return "\n".join([para.text for para in doc.paragraphs])
-    except Exception as e:
-        print(f"Error processing .docx file {file_path}: {e}")
-        return ""
-
-
-def load_doc(file_path):
-    try:
-        with open(file_path, "rb") as doc_file:
-            result = mammoth.extract_raw_text(doc_file)
-        return result.value
-    except Exception as e:
-        print(f"Error processing .doc file {file_path}: {e}")
-        return ""
-
-
-def load_txt(file_path):
-    try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            return file.read()
-    except Exception as e:
-        print(f"Error processing .txt file {file_path}: {e}")
-        return ""
-
-
-def split_text(text, max_tokens=1024, chunk_overlap=64):
-    splitter = SentenceSplitter(chunk_size=max_tokens, chunk_overlap=chunk_overlap)
-    return splitter.split_text(text)
-
-
-def process_file(file_path):
     documents = []
-    print(file_path)
-    loader = FileLoader(verbose=True)
-    try:
-        if file_path.lower().endswith(".pdf"):
-            documents.extend(loader.load_pdf(file_path))
-        elif file_path.lower().endswith(".docx"):
-            documents.extend(loader.load_docx(file_path))
-        elif file_path.lower().endswith(".doc"):
-            text = load_doc(file_path)
-            if text:
-                text_chunks = split_text(text)
-                for chunk in text_chunks:
-                    documents.append(
-                        LlamaDocument(text=chunk, metadata={"source": file_path})
-                    )
-        elif file_path.lower().endswith(".txt"):
-            text = load_txt(file_path)
-            text_chunks = split_text(text)
-            for chunk in text_chunks:
-                documents.append(
-                    LlamaDocument(text=chunk, metadata={"source": file_path})
-                )
-    except Exception as e:
-        print(f"Error processing file {file_path}: {e}")
-    return documents
-
-
-def preprocess_and_store_documents():
-    # download_resumes_from_s3(os.environ["S3_BUCKET_NAME"], "resumes")
-
-    all_documents = []
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    with ThreadPoolExecutor(max_workers=24) as executor:
         futures = [
             executor.submit(process_file, os.path.join(root, file))
             for root, _, files in os.walk("resumes")
@@ -167,76 +95,80 @@ def preprocess_and_store_documents():
         for future in as_completed(futures):
             result = future.result()
             if result:
-                all_documents.extend(result)
+                documents.append(result)
 
-    texts = [d.text for d in all_documents if d.text.strip()]
-
-    return all_documents, texts
+    return documents
 
 
-def create_advanced_rag_system(documents):
-    # Create a VectorStoreIndex
-    index = VectorStoreIndex.from_documents(documents)
+def create_query_engine(docs: list[LlamaDocument]):
+    nodes = Settings.node_parser.get_nodes_from_documents(docs)
+    storage_context = StorageContext.from_defaults()
+    storage_context.docstore.add_documents(docs)
 
-    # Create a base query engine
-    base_query_engine = index.as_query_engine(
-        similarity_top_k=100,
+    vector_index = VectorStoreIndex(nodes, storage_context=storage_context)
+    keyword_index = SimpleKeywordTableIndex(nodes, storage_context=storage_context)
+
+    vector_retriever = VectorIndexRetriever(
+        index=vector_index, similarity_top_k=20, verbose=True
     )
 
-    # Create query engine tools
+    keyword_retriever = KeywordTableSimpleRetriever(index=keyword_index, verbose=True)
+    custom_retriever = HybridRetriever(vector_retriever, keyword_retriever)
+
+    response_synthesizer = get_response_synthesizer()
+    custom_query_engine = RetrieverQueryEngine(
+        retriever=custom_retriever,
+        response_synthesizer=response_synthesizer,
+    )
+
+    return custom_query_engine
+
+
+def create_advanced_rag_system():
+    list_of_docs = preprocess_and_store_documents()
+
     tools = [
-        QueryEngineTool(
-            query_engine=base_query_engine,
-            metadata=ToolMetadata(
-                name="vector_index",
-                description="A vector database containing all the embeddings derived from each candidate's resume",
-            ),
-        )
+        # QueryEngineTool(
+        #     query_engine=create_query_engine(
+        #         [y for x in list_of_docs for y in x['candidate_name']]
+        #     ),
+        #     metadata=ToolMetadata(
+        #         name="resumes_metadata",
+        #         description="Contains information about the resume documents",
+        #     ),
+        # )
     ]
 
+    for docs in list_of_docs:
+        tools.append(
+            QueryEngineTool(
+                query_engine=create_query_engine(docs["documents"]),
+                metadata=ToolMetadata(
+                    name=f"{docs['candidate_name']}",
+                    description=f"Contains the resume contents of {docs['candidate_name']}",
+                ),
+            )
+        )
+
     # Create the LLM
-    llm = OpenAI(temperature=0.9, model="gpt-4o")
+    llm = OpenAI(temperature=0.5, model="gpt-4o", max_tokens=None)
 
     # Create the RAG agent
-    rag_agent = ReActAgent.from_tools(
-        tools, llm=llm, verbose=True, react_chat_kwargs={"max_iterations": 5}
-    )
+    # rag_agent = ReActAgent.from_tools(
+    #     tools,
+    #     llm=llm,
+    #     verbose=True,
+    #     react_chat_kwargs={"max_iterations": 5},
+    # )
+    # rag_agent.update_prompts(
+    #     {"agent_worker:system_prompt": PromptTemplate(RAG_AGENT_PROMPT)}
+    # )
 
-    return rag_agent
-
-
-def load_or_create_documents():
-    if os.path.exists("documents.pkl"):
-        with open("documents.pkl", "rb") as f:
-            try:
-                documents = pickle.load(f)
-                if not documents:
-                    raise EOFError
-                return documents
-            except EOFError:
-                return None
-    return None
-
-
-def load_or_create_advanced_rag_system():
-    documents = load_or_create_documents()
-    if not documents:
-        documents, _ = preprocess_and_store_documents()
-        with open("documents.pkl", "wb") as f:
-            pickle.dump(documents, f)
-
-    # Ensure the documents have unique IDs
-    for i, doc in enumerate(documents):
-        doc.metadata["id"] = f"doc_{i}"
-
-    # Create the advanced RAG system
-    advanced_rag = create_advanced_rag_system(documents)
-
-    return advanced_rag
+    return SubQuestionQueryEngine.from_defaults(query_engine_tools=tools, llm=llm)
 
 
 # Initialize the advanced RAG system once at the start
-advanced_rag = load_or_create_advanced_rag_system()
+advanced_rag = create_advanced_rag_system()
 
 
 def add_text(history, text):
@@ -257,10 +189,10 @@ def generate_response(history, query):
             chat_history_str.append(tuple(entry))
 
     # Use the RAG agent
-    rag_response = advanced_rag.chat(query)
+    rag_response = advanced_rag.query(query)
 
     # Get the response
-    response = f"RAG Agent: {rag_response}"
+    response = f"RAG Agent:\n{rag_response}"
 
     history[-1] = (query, response)
     return history, ""
@@ -297,6 +229,9 @@ with gr.Blocks(
         outputs=[chatbot, txt, gr.Textbox()],
     )
 
+
 demo.queue()
+
+
 if __name__ == "__main__":
     demo.launch(share=True)

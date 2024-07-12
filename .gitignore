@@ -3,3 +3,5 @@
 resumes/
 *.pkl
 __pycache__
+.cache/
+*.zip

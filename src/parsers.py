@@ -5,33 +5,9 @@ from prompts import STRAIGHT_FORWARD_PROMPT
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
-_ner = GLiNER.from_pretrained("urchade/gliner_large-v2.1")
-_labels = ["name", "phone number", "university/college", "college_degree"]
-_llm = ChatOpenAI(model="gpt-4o", temperature=0.5)
-
 
 def _parse_direct_answer(gpt_response: dict[str, str]) -> None | str:
     return gpt_response.content if gpt_response.content == "None" else None
-
-
-_chain = (
-    ChatPromptTemplate.from_messages(
-        [
-            ("system", STRAIGHT_FORWARD_PROMPT),
-            (
-                "human",
-                """
-{proposition}
-                                                                                 
-What is the full name of the college degree only? Specify the degree type (e.g. Master's or Bachelor's) AND the name of the degree (e.g. Computer Science, Electrical Engineering, Philosophy). If no degree name is specified, just say "None". If any words of "program" is present, just say "None".
-                                                                                 
-Proper answers would include the following: Bachelor of Science in Data Science, Master of Science in Aerospace Engineering, B.A. in Psychology, Master's in English, Master of Fine Arts, Bachelor of Arts in Music""",
-            ),
-        ]
-    )
-    | _llm
-    | _parse_direct_answer
-)
 
 
 def information_integrity_agent_output_parser(gpt_response: dict[str, str]) -> str:
@@ -43,6 +19,28 @@ def md_json_parser(gpt_response: dict[str, str]) -> list[str]:
 
 
 def extract_person_metadata(propositions: list[str]) -> dict[str, str]:
+    _ner = GLiNER.from_pretrained("urchade/gliner_large-v2.1")
+    _labels = ["name", "phone number", "university/college", "college_degree"]
+    _llm = ChatOpenAI(model="gpt-4o", temperature=0.5)
+    _chain = (
+        ChatPromptTemplate.from_messages(
+            [
+                ("system", STRAIGHT_FORWARD_PROMPT),
+                (
+                    "human",
+                    """
+{proposition}
+                                                                                 
+What is the full name of the college degree only? Specify the degree type (e.g. Master's or Bachelor's) AND the name of the degree (e.g. Computer Science, Electrical Engineering, Philosophy). If no degree name is specified, just say "None". If any words of "program" is present, just say "None".
+                                                                                 
+Proper answers would include the following: Bachelor of Science in Data Science, Master of Science in Aerospace Engineering, B.A. in Psychology, Master's in English, Master of Fine Arts, Bachelor of Arts in Music""",
+                ),
+            ]
+        )
+        | _llm
+        | _parse_direct_answer
+    )
+
     data: dict[str, list[set[str]]] = {
         "email": [set(), set()],
     }
