@@ -164,7 +164,7 @@ def create_advanced_rag_system():
             FunctionTool.from_defaults(
                 subquestion_agent.query,
                 name="Resume",
-                description='Provides resume information about a candidate. This takes a string which is the query you want to find about a candidate. An example would be "What is John Smith\'s job experience?" or "Return everything about the individuals with a computer science degree"',
+                description='Provides resume information about a candidate. This takes a string which is the query you want to find about a candidate. An example would be "What is John Smith\'s job experience?" or "Who are the individuals with a computer science degrees? Return everything about them.". This uses a sub question generator, so make sure your query is precise, specific, and descriptive.',
             )
         ],
         llm=llm,
