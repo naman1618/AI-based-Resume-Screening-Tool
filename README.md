@@ -1,5 +1,13 @@
 # Joyful Jobs
 
+## Project features
+
+- RAG
+- ReAct Agent
+- Subquestion Query Engine
+- Agentic Splitting
+- Caching
+
 ## Prerequisites
 
 - [python 3.11.4](https://www.python.org/downloads/release/python-3114/)
@@ -67,4 +75,22 @@ Copy `.env_default` to another file called `.env` within the root directory. Put
 
 ### Running the program
 
-Simply run the notebook file [app.ipynb](src/app.ipynb) to start a gradio server locally
+There is no production-ready application, yet. The prototype application uses [gradio](https://www.gradio.app/), and before running it, **please make sure you have a `.cache` folder containing all the processed information of resumes (ask Joseph for the download link)**. Each document goes through in-depth analysis and gets parsed in a way for an LLM to understand, and this task is NOT cheap. The contents of the `.cache` file should look like this:
+
+```
+.cache/
+├── 0c26b4af755bc4d0a1ef431d9adaf9a675f01c4b4decd98e8811d26e7c0b4f93-chunks.json
+├── 0c26b4af755bc4d0a1ef431d9adaf9a675f01c4b4decd98e8811d26e7c0b4f93.json
+├── 0c26b4af755bc4d0a1ef431d9adaf9a675f01c4b4decd98e8811d26e7c0b4f93.md
+└── ...
+```
+
+The `.cache` folder should be located in the root directory of this repository (do not put it into `src`)
+
+Once you have the `.cache` folder, you can run the program via:
+
+```py
+python src/experimental.py
+```
+
+This will start a gradio server, allowing you to interact with the chat bot.
