@@ -5,7 +5,7 @@ from llama_index.core import (
     VectorStoreIndex,
 )
 from llama_index.core.query_engine import RetrieverQueryEngine, SubQuestionQueryEngine
-from llama_index.core.tools import QueryEngineTool, ToolMetadata
+from llama_index.core.tools import QueryEngineTool, ToolMetadata, FunctionTool
 from llama_index.core.retrievers import (
     VectorIndexRetriever,
     KeywordTableSimpleRetriever,
@@ -26,6 +26,7 @@ from agentic_splitter import AgenticSplitter
 from llama_index.core import Settings
 from file_loader import FileLoader
 from hybrid_retriever import HybridRetriever
+from llama_index.core.agent import ReActAgent
 
 # Suppress warnings
 import warnings
@@ -153,18 +154,29 @@ def create_advanced_rag_system():
     # Create the LLM
     llm = OpenAI(temperature=0.5, model="gpt-4o", max_tokens=None)
 
+    subquestion_agent = SubQuestionQueryEngine.from_defaults(
+        query_engine_tools=tools, llm=llm
+    )
+
     # Create the RAG agent
-    # rag_agent = ReActAgent.from_tools(
-    #     tools,
-    #     llm=llm,
-    #     verbose=True,
-    #     react_chat_kwargs={"max_iterations": 5},
-    # )
+    rag_agent = ReActAgent.from_tools(
+        [
+            FunctionTool.from_defaults(
+                subquestion_agent.query,
+                name="Resume",
+                description='Provides resume information about a candidate. This takes a string which is the query you want to find about a candidate. An example would be "What is John Smith\'s job experience?" or "Return everything about the individuals with a computer science degree"',
+            )
+        ],
+        llm=llm,
+        verbose=True,
+        react_chat_kwargs={"max_iterations": 5},
+        context="You are a job recruier. You are an expert in the finding, screening and attracting of applicants for open positions. You have been given a list of resumes, and it is your job to identify and examine prospects of each candidate and determine which candidates are best for a job position.",
+    )
     # rag_agent.update_prompts(
     #     {"agent_worker:system_prompt": PromptTemplate(RAG_AGENT_PROMPT)}
     # )
 
-    return SubQuestionQueryEngine.from_defaults(query_engine_tools=tools, llm=llm)
+    return rag_agent
 
 
 # Initialize the advanced RAG system once at the start
@@ -189,7 +201,7 @@ def generate_response(history, query):
             chat_history_str.append(tuple(entry))
 
     # Use the RAG agent
-    rag_response = advanced_rag.query(query)
+    rag_response = advanced_rag.chat(query)
 
     # Get the response
     response = f"RAG Agent:\n{rag_response}"
