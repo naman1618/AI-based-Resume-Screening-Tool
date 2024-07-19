@@ -7,7 +7,7 @@ import hashlib
 class Text2Markdown:
     def __init__(self, cache_dir=".cache", verbose=False) -> None:
         self._llm = ChatOpenAI(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             temperature=0,
             max_tokens=None,
             timeout=None,

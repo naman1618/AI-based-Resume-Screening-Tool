@@ -4,13 +4,13 @@ from llama_index.core import (
     Document as LlamaDocument,
     VectorStoreIndex,
 )
-from llama_index.core.query_engine import RetrieverQueryEngine, SubQuestionQueryEngine
+from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.tools import QueryEngineTool, ToolMetadata, FunctionTool
 from llama_index.core.retrievers import (
     VectorIndexRetriever,
     KeywordTableSimpleRetriever,
 )
-
+from llama_index.core.postprocessor import LongContextReorder
 from llama_index.llms.openai import OpenAI
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core import (
@@ -18,6 +18,7 @@ from llama_index.core import (
     SimpleKeywordTableIndex,
     get_response_synthesizer,
 )
+from llama_index.core.node_parser import MarkdownNodeParser
 from dotenv import load_dotenv
 import os
 import boto3
@@ -37,13 +38,21 @@ load_dotenv()
 s3 = boto3.client("s3")
 
 # Set up llama_index settings
-embed_model = OpenAIEmbedding(model="text-embedding-3-large")
+Settings.embed_model = OpenAIEmbedding(model="text-embedding-3-large")
+
+NPROC = os.cpu_count()
 
 
 class ProcessedFile(TypedDict):
     documents: list[LlamaDocument]
     candidate_name: str
     file_path: str
+
+
+class EngineTool(TypedDict):
+    candidate_name: str
+    resume_contents: list[str]
+    engine: RetrieverQueryEngine
 
 
 def process_file(path: str) -> ProcessedFile:
@@ -58,6 +67,9 @@ def process_file(path: str) -> ProcessedFile:
         splitter.persist(md_hash=md_hash)
 
     return {
+        # "documents": SimpleDirectoryReader(
+        #     input_files=[f".cache/{md_hash}.md"]
+        # ).load_data(show_progress=True),
         "documents": splitter.to_documents(candidate_name=name),
         "candidate_name": name,
         "file_path": path,
@@ -87,7 +99,7 @@ def preprocess_and_store_documents() -> list[ProcessedFile]:
     download_resumes_from_s3(os.environ["S3_BUCKET_NAME"], "resumes")
 
     documents = []
-    with ThreadPoolExecutor(max_workers=24) as executor:
+    with ThreadPoolExecutor(max_workers=NPROC) as executor:
         futures = [
             executor.submit(process_file, os.path.join(root, file))
             for root, _, files in os.walk("resumes")
@@ -110,7 +122,10 @@ def create_query_engine(docs: list[LlamaDocument]):
     keyword_index = SimpleKeywordTableIndex(nodes, storage_context=storage_context)
 
     vector_retriever = VectorIndexRetriever(
-        index=vector_index, similarity_top_k=20, verbose=True
+        index=vector_index,
+        similarity_top_k=20,
+        verbose=True,
+        node_postprocessors=[LongContextReorder()],
     )
 
     keyword_retriever = KeywordTableSimpleRetriever(index=keyword_index, verbose=True)
@@ -154,18 +169,88 @@ def create_advanced_rag_system():
     # Create the LLM
     llm = OpenAI(temperature=0.5, model="gpt-4o", max_tokens=None)
 
-    subquestion_agent = SubQuestionQueryEngine.from_defaults(
-        query_engine_tools=tools, llm=llm
-    )
+    def resumes_metadata():
+        """
+        Returns information about the resume database
+        """
+        return {
+            "resume_count": len(list_of_docs),
+            "candidates": [*set([x["candidate_name"] for x in list_of_docs])],
+        }
+
+    vector_indexes = {
+        x["candidate_name"]: EngineTool(
+            candidate_name=x["candidate_name"],
+            engine=create_query_engine(x["documents"]),
+            resume_contents=[y.get_text() for y in x["documents"]],
+        )
+        for x in list_of_docs
+    }
+
+    def get_response_txt(response):
+        return str(response) if str(response) != None else None
+
+    def get_resume_data(candidates: list[str], str_or_query_bundle: str | None):
+        results: dict[str, RetrieverQueryEngine] = {}
+        with ThreadPoolExecutor(max_workers=NPROC) as executor:
+            futures = [
+                executor.submit(
+                    lambda: (
+                        {
+                            "candidate_name": candidate,
+                            "result": (
+                                get_response_txt(
+                                    vector_indexes[candidate]["engine"].query(
+                                        str_or_query_bundle
+                                    )
+                                )
+                                if str_or_query_bundle
+                                else " ".join(
+                                    vector_indexes[candidate]["resume_contents"]
+                                )
+                            ),
+                        }
+                    )
+                )
+                for candidate in candidates
+            ]
+            for future in as_completed(futures):
+                result = future.result()
+                results[result["candidate_name"]] = result["result"]
+        return results
 
     # Create the RAG agent
     rag_agent = ReActAgent.from_tools(
         [
+            # QueryEngineTool(
+            #     query_engine=create_query_engine(
+            #         [y for x in list_of_docs for y in x["documents"]]
+            #     ),
+            #     metadata=ToolMetadata(
+            #         name="vector_index",
+            #         description="Useful for getting information about the resumes",
+            #     ),
+            # )
+            # FunctionTool.from_defaults(
+            #     subquestion_agent.query,
+            #     name="query_resumes",
+            #     description='Gets an aggregation of candidates\' information in their resumes. This takes a string which is the query you want to find about a candidate or multiple candidates. If the query is an aggregation of candidates, please specify their names. An example would be "What is John Smith\'s job experience?" or "Determine if each individual has a degree in Computer Science" or "Determine if Joseph Marbella and Parth Bhambure have any experience with the Rust programming language". This uses a sub question generator, so make sure your query is precise, specific, and descriptive.',
+            # ),
             FunctionTool.from_defaults(
-                subquestion_agent.query,
-                name="Resume",
-                description='Provides resume information about a candidate. This takes a string which is the query you want to find about a candidate. An example would be "What is John Smith\'s job experience?" or "Who are the individuals with a computer science degrees? Return everything about them.". This uses a sub question generator, so make sure your query is precise, specific, and descriptive.',
-            )
+                get_resume_data,
+                name="resume_data",
+                description="Before executing, you MUST know the exact names of all the candidates. To get the names of all candidates, please invoke `resumes_info` tool. This tool provides information about candidate(s). The first argument is a list of candidate names that you want to get information from, and the second argument is vector query about those candidates. If provided a blank string, everything about the candidate is returned. A non-blank string is always preferred to reduce costs.",
+            ),
+            FunctionTool.from_defaults(
+                resumes_metadata,
+                name="resumes_info",
+                description="Provides information about the resume/CV database including all candidates and the number of entries",
+            ),
+            # FunctionTool.from_defaults(
+            #     get_resume,
+            #     name="get_resume_of_candidate",
+            #     description="Returns all the information about a candidate. The argument is the name of the candidate. Multiple candidates may share the same name. This tool returns the names of the candidates that match the argument. If a name returns nothing, please refer to the `candidates_found` property in `resumes-info` tool.",
+            # ),
         ],
         llm=llm,
         verbose=True,

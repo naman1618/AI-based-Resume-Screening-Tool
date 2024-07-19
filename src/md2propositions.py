@@ -9,7 +9,7 @@ import json
 class Markdown2Propositions:
     def __init__(self, verbose=False, cache_dir=".cache") -> None:
         self._llm = ChatOpenAI(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             temperature=0.1,
             max_tokens=None,
             timeout=None,

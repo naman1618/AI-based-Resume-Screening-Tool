@@ -20,7 +20,7 @@ class Chunk(BaseModel):
 
 class AgenticSplitter:
     def __init__(self, verbose=False, cache_dir=".cache") -> None:
-        self._llm = ChatOpenAI(model="gpt-4o", temperature=0)
+        self._llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         self._keyword_generator_agent = (
             ChatPromptTemplate.from_messages(
                 [

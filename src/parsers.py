@@ -21,7 +21,7 @@ def md_json_parser(gpt_response: dict[str, str]) -> list[str]:
 def extract_person_metadata(propositions: list[str]) -> dict[str, str]:
     _ner = GLiNER.from_pretrained("urchade/gliner_large-v2.1")
     _labels = ["name", "phone number", "university/college", "college_degree"]
-    _llm = ChatOpenAI(model="gpt-4o", temperature=0.5)
+    _llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.5)
     _chain = (
         ChatPromptTemplate.from_messages(
             [
