@@ -5,3 +5,9 @@ resumes/
 __pycache__
 .cache/
 *.zip
+cache.json
+chatbot_log.txt
+resumes_database.db
+flagged/
+output.html
+output.log

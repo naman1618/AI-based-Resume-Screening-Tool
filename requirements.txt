@@ -11,6 +11,7 @@ beautifulsoup4==4.12.3
 boto3==1.34.140
 botocore==1.34.140
 Brotli==1.1.0
+cachetools==5.4.0
 certifi==2024.7.4
 cffi==1.16.0
 charset-normalizer==3.3.2
@@ -30,6 +31,7 @@ dirtyjson==1.0.8
 diskcache==5.6.3
 distro==1.9.0
 dnspython==2.6.1
+doc2docx==0.2.4
 docx2txt==0.8
 email_validator==2.2.0
 executing==2.0.1
@@ -44,8 +46,16 @@ frozenlist==1.4.1
 fsspec==2024.6.1
 ftfy==6.2.0
 gliner==0.2.7
+google-api-core==2.19.1
+google-auth==2.32.0
+google-cloud-core==2.4.1
+google-cloud-storage==2.18.0
+google-crc32c==1.5.0
+google-resumable-media==2.7.1
+googleapis-common-protos==1.63.2
 gradio==4.37.2
 gradio_client==1.0.2
+gradio_pdf==0.0.11
 greenlet==3.0.3
 grpcio==1.64.1
 guidance==0.1.15
@@ -85,10 +95,11 @@ llama-index==0.10.53
 llama-index-agent-openai==0.2.7
 llama-index-cli==0.1.12
 llama-index-core==0.10.53.post1
+llama-index-embeddings-huggingface==0.2.2
 llama-index-embeddings-openai==0.1.10
 llama-index-indices-managed-llama-cloud==0.2.3
 llama-index-legacy==0.9.48
-llama-index-llms-openai==0.1.25
+llama-index-llms-openai==0.1.26
 llama-index-multi-modal-llms-openai==0.1.7
 llama-index-program-guidance==0.1.2
 llama-index-program-openai==0.1.6
@@ -106,6 +117,7 @@ marshmallow==3.21.3
 matplotlib==3.9.1
 matplotlib-inline==0.1.7
 mdurl==0.1.2
+minijinja==2.0.1
 mplcursors==0.5.3
 mpmath==1.3.0
 multidict==6.0.5
@@ -117,7 +129,7 @@ nltk==3.8.1
 numpy==1.26.4
 onnx==1.16.1
 onnxruntime==1.18.1
-openai==1.35.10
+openai==1.35.15
 opencv-python==4.10.0.84
 ordered-set==4.1.0
 orjson==3.10.6
@@ -129,10 +141,13 @@ pexpect==4.9.0
 pillow==10.4.0
 platformdirs==4.2.2
 prompt_toolkit==3.0.47
+proto-plus==1.24.0
 protobuf==5.27.2
 psutil==6.0.0
 ptyprocess==0.7.0
 pure-eval==0.2.2
+pyasn1==0.6.0
+pyasn1_modules==0.4.0
 pyclipper==1.3.0.post5
 pycparser==2.22
 pydantic==2.8.2
@@ -151,6 +166,7 @@ pypdf==4.2.0
 PyPDF2==3.0.1
 pypdfium2==4.30.0
 pyphen==0.15.0
+pysqlite3==0.5.3
 python-dateutil==2.9.0.post0
 python-doctr @ git+https://github.com/mindee/doctr.git@1cea7d8f7db2c3cf7365be3c7457b7fe67f82ab9
 python-docx==1.1.2
@@ -165,12 +181,14 @@ regex==2024.5.15
 requests==2.32.3
 rich==13.7.1
 rpds-py==0.19.0
+rsa==4.9
 ruff==0.5.1
 s3transfer==0.10.2
 safetensors==0.4.3
 scikit-learn==1.5.1
 scipy==1.14.0
 semantic-version==2.10.0
+sentence-transformers==3.0.1
 sentencepiece==0.2.0
 shapely==2.0.4
 shellingham==1.5.4
