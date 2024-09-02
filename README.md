@@ -1,4 +1,4 @@
-# Joyful Jobs
+# Intelligent Candidate Matching System
 
 ## Project features
 
